@@ -165,7 +165,7 @@ public abstract class DurableTaskStep extends AbstractStepImpl {
             if (ws == null) {
                 ws = FilePathUtils.find(node, remote);
                 if (ws == null) {
-                    LOGGER.log(Level.FINE, "Jenkins is not running, no such node {0}, or it is offline", node);
+                    LOGGER.log(Level.INFO, "Jenkins is not running, no such node {0}, or it is offline", node);
                     return null;
                 }
             }
@@ -174,7 +174,7 @@ public abstract class DurableTaskStep extends AbstractStepImpl {
                 directory = ws.isDirectory();
             } catch (Exception x) {
                 // RequestAbortedException, ChannelClosedException, EOFException, wrappers thereof…
-                LOGGER.log(Level.FINE, node + " is evidently offline now", x);
+                LOGGER.log(Level.INFO, node + " is evidently offline now", x);
                 ws = null;
                 return null;
             }
@@ -194,11 +194,11 @@ public abstract class DurableTaskStep extends AbstractStepImpl {
                         LOGGER.log(Level.WARNING, "JENKINS-34021: DurableTaskStep.Execution.listener not restored in {0}", context);
                     } else {
                         LOGGER.log(Level.WARNING, "JENKINS-34021: TaskListener not even available upon request in {0}", context);
-                        l = new LogTaskListener(LOGGER, Level.FINE);
+                        l = new LogTaskListener(LOGGER, Level.INFO);
                     }
                 } catch (Exception x) {
                     LOGGER.log(Level.WARNING, "JENKINS-34021: could not get TaskListener in " + context, x);
-                    l = new LogTaskListener(LOGGER, Level.FINE);
+                    l = new LogTaskListener(LOGGER, Level.INFO);
                 }
             }
             return l.getLogger();
@@ -208,7 +208,7 @@ public abstract class DurableTaskStep extends AbstractStepImpl {
             FilePath workspace = getWorkspace();
             if (workspace != null) {
                 logger().println("Sending interrupt signal to process");
-                LOGGER.log(Level.FINE, "stopping process", cause);
+                LOGGER.log(Level.INFO, "stopping process", cause);
                 controller.stop(workspace, launcher);
             } else {
                 logger().println("Could not connect to " + node + " to send interrupt signal to process");
@@ -270,10 +270,10 @@ public abstract class DurableTaskStep extends AbstractStepImpl {
                 }
                 Integer exitCode = controller.exitStatus(workspace, launcher);
                 if (exitCode == null) {
-                    LOGGER.log(Level.FINE, "still running in {0} on {1}", new Object[] {remote, node});
+                    LOGGER.log(Level.INFO, "still running in {0} on {1}", new Object[] {remote, node});
                 } else {
                     if (controller.writeLog(workspace, logger())) {
-                        LOGGER.log(Level.FINE, "last-minute output in {0} on {1}", new Object[] {remote, node});
+                        LOGGER.log(Level.INFO, "last-minute output in {0} on {1}", new Object[] {remote, node});
                     }
                     t.set(null); // do not interrupt cleanup
                     if (returnStatus || exitCode == 0) {
@@ -282,16 +282,27 @@ public abstract class DurableTaskStep extends AbstractStepImpl {
                         if (returnStdout) {
                             listener.getLogger().write(controller.getOutput(workspace, launcher)); // diagnostic
                         }
-                        getContext().onFailure(new AbortException("script returned exit code " + exitCode));
+
+                        LOGGER.log(Level.INFO, "script returned exit code {0} script {1}", new Object[] {exitCode, ((ShellStep)step).getScript()});
+
+                        String output = "null";
+
+                        try {
+                            output = new String(controller.getOutput(workspace, launcher), encoding);
+                        } catch (Throwable tr) {
+                            LOGGER.log(Level.ALL, tr.getMessage(), tr);
+                        }
+
+                        Thread.sleep(600_000);
+
+                        getContext().onFailure(new AbortException("script returned exit code " + exitCode +
+                                " workspace: " + remote + " output: " + output));
                     }
                     recurrencePeriod = 0;
                     controller.cleanup(workspace);
                 }
-            } catch (IOException x) {
-                LOGGER.log(Level.FINE, "could not check " + workspace, x);
-                ws = null;
-            } catch (InterruptedException x) {
-                LOGGER.log(Level.FINE, "could not check " + workspace, x);
+            } catch (IOException | InterruptedException x) {
+                LOGGER.log(Level.WARNING, "could not check " + workspace, x);
                 ws = null;
             } finally {
                 t.set(null); // cancel timer
